@@ -26,7 +26,10 @@ class TransferView extends StatelessWidget {
     this.showOverview = true,
     this.preparing = 0,
     this.prepProgress = 0,
+    this.prepEta = double.nan,
   });
+
+  final double prepEta;
 
   /// Sender: files still being shrunk; they follow in a second session, so
   /// the first one finishing isn't "all sent" yet.
@@ -60,6 +63,7 @@ class TransferView extends StatelessWidget {
           showOverview: showOverview,
           preparing: preparing,
           prepProgress: prepProgress,
+          prepEta: prepEta,
         ),
       ),
     );
@@ -74,10 +78,12 @@ class _TransferBody extends StatelessWidget {
     this.showOverview = true,
     this.preparing = 0,
     this.prepProgress = 0,
+    this.prepEta = double.nan,
   });
 
   final int preparing;
   final double prepProgress;
+  final double prepEta;
   final bool sending;
   final bool showOverview;
   final String? connectingText;
@@ -131,7 +137,7 @@ class _TransferBody extends StatelessWidget {
 
     final String sub;
     if (holding) {
-      sub = s.shrinkingRestSub((prepProgress * 100).round());
+      sub = '${s.eta(prepEta)} · ${s.pct((prepProgress * 100).round())}';
     } else if (done) {
       sub = s.doneIn(fmtBytes(s, x.totalBytes), fmtMs(s, x.elapsedMs), fmtRate(s, x.avgBytesPerSec));
     } else if (failed) {

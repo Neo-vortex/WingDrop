@@ -95,7 +95,7 @@ class S {
         n == 1 ? 'Shrinking one more…' : 'Shrinking $n more…',
         n == 1 ? 'دارم یکی دیگه رو سبک می‌کنم…' : 'دارم $n تای دیگه رو سبک می‌کنم…',
       );
-  String shrinkingRestSub(int pct) => _t('$pct% · it goes the moment it\'s ready', '$pct٪ · همین که آماده شد می‌ره');
+  String pct(int n) => _t('$n%', '$n٪');
   String prepLine(int n, int pct) => _t(
         n == 1 ? 'Shrinking one file in the background · $pct%' : 'Shrinking $n files in the background · $pct%',
         n == 1 ? 'یه فایل پشت صحنه داره سبک می‌شه · $pct٪' : '$n تا فایل پشت صحنه دارن سبک می‌شن · $pct٪',

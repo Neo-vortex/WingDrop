@@ -215,7 +215,7 @@ class _SendView extends StatelessWidget {
               SizedBox(width: 220, child: GlideBar(value: st.convertProgress)),
               const SizedBox(height: 10),
               SoftText(
-                s.shrinkingRestSub((st.convertProgress * 100).round()),
+                '${s.eta(st.prepEta)} · ${s.pct((st.convertProgress * 100).round())}',
                 style: t.bodySmall?.copyWith(color: cs.onSurfaceVariant),
                 textAlign: TextAlign.center,
               ),
@@ -271,6 +271,7 @@ class _SendView extends StatelessWidget {
               onFinished: (stats) => context.read<SendCubit>().finished(),
               preparing: st.preparing,
               prepProgress: st.convertProgress,
+              prepEta: st.prepEta,
             ),
             if (st.step == SendStep.finished) ...[
               const SizedBox(height: 24),
@@ -561,7 +562,7 @@ class _PrepLine extends StatelessWidget {
                   const SizedBox(width: 6),
                   Flexible(
                     child: SoftText(
-                      context.s.prepLine(state.preparing, (state.convertProgress * 100).round()),
+                      '${context.s.prepLine(state.preparing, (state.convertProgress * 100).round())} · ${context.s.eta(state.prepEta)}',
                       style: t.bodySmall?.copyWith(color: cs.onSurfaceVariant),
                     ),
                   ),

@@ -55,6 +55,7 @@ class SendState {
     this.stage = '',
     this.stageSince,
     this.preparing = 0,
+    this.prepEta = double.nan,
   });
 
   final SendStep step;
@@ -75,6 +76,9 @@ class SendState {
   /// Files still being shrunk in the background (they follow the rest).
   final int preparing;
 
+  /// Seconds until shrinking is done (NaN while still estimating).
+  final double prepEta;
+
   /// The single phone we're sending to (for the header), if just one.
   Pairing? get peer => targets.length == 1 ? targets.first.pairing : null;
 
@@ -89,6 +93,7 @@ class SendState {
     bool bump = false,
     String? stage,
     int? preparing,
+    double? prepEta,
   }) =>
       SendState(
         step: step ?? this.step,
@@ -103,6 +108,7 @@ class SendState {
         stage: stage ?? this.stage,
         stageSince: stage != null && stage != this.stage ? DateTime.now() : stageSince,
         preparing: preparing ?? this.preparing,
+        prepEta: prepEta ?? this.prepEta,
       );
 }
 
@@ -163,9 +169,27 @@ class SendCubit extends Cubit<SendState> {
   }
 
   Future<void> _prepare(List<SendItem> media, int preset) async {
+    final started = DateTime.now();
+    var smooth = double.nan;
+    var shown = DateTime.fromMillisecondsSinceEpoch(0);
+    emit(state.copyWith(prepEta: double.nan));
     final timer = Timer.periodic(const Duration(milliseconds: 500), (_) async {
       final p = await Bridge.call<double>('shrinkProgress');
-      if (!isClosed && p != null && _pending.isNotEmpty) emit(state.copyWith(convertProgress: p));
+      if (isClosed || p == null || _pending.isEmpty) return;
+      // Time left from the average pace so far, smoothed, and republished at
+      // most every 3 s so the text stays calm instead of flickering.
+      final now = DateTime.now();
+      final elapsed = now.difference(started).inMilliseconds / 1000;
+      double? eta;
+      if (p > 0.02 && elapsed > 3) {
+        final raw = elapsed * (1 - p) / p;
+        smooth = smooth.isNaN ? raw : smooth * 0.7 + raw * 0.3;
+        if (now.difference(shown) > const Duration(seconds: 3)) {
+          shown = now;
+          eta = smooth;
+        }
+      }
+      emit(state.copyWith(convertProgress: p, prepEta: eta));
     });
     try {
       final out = await Bridge.call<List>('shrink', {
