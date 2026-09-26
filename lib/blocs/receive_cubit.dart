@@ -119,9 +119,6 @@ class ReceiveCubit extends Cubit<ReceiveState> {
             },
           }) ??
           {});
-      // The beacon (and so near-instant discovery) needs Bluetooth; it
-      // starts by itself once Bluetooth comes on.
-      if (r['mode'] == 'p2p') Bridge.offerBluetooth();
       final pairing = Pairing(
         mode: r['mode'],
         hosts: (r['hosts'] as List).cast<String>(),
@@ -161,6 +158,9 @@ class ReceiveCubit extends Cubit<ReceiveState> {
     final list = await Bridge.list('received');
     final stats = await Bridge.stats();
     final overview = await Bridge.overview(limit: 400);
+    // Bluetooth may be switched on (or off) while we wait; the beacon follows
+    // it natively, the hint here follows the beacon.
+    final beacon = state.pairing?.mode == 'p2p' ? await Bridge.call<bool>('beacon') ?? state.beacon : state.beacon;
     if (isClosed) return;
     final progress = <String, OverviewFile>{
       for (final x in overview)
@@ -174,7 +174,7 @@ class ReceiveCubit extends Cubit<ReceiveState> {
         stats.state == EngineState.connecting ||
         stats.state == EngineState.transferring ||
         (state.active && stats.totalBytes > 0);
-    emit(state.copyWith(received: list.map(ReceivedItem.new).toList(), active: active, progress: progress));
+    emit(state.copyWith(received: list.map(ReceivedItem.new).toList(), active: active, progress: progress, beacon: beacon));
   }
 
   /// Back to showing the code after a finished batch.

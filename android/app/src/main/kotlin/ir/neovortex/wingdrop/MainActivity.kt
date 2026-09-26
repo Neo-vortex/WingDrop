@@ -113,6 +113,7 @@ class MainActivity : FlutterActivity() {
                 result.success(null)
             }
             "vpn" -> result.success(wifi.vpnActive())
+            "beacon" -> result.success(wifi.beaconing())
             "btOn" -> result.success(
                 getSystemService(android.bluetooth.BluetoothManager::class.java)?.adapter?.isEnabled == true,
             )

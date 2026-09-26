@@ -19,18 +19,6 @@ class Bridge {
   static Future<bool> permissions(List<String> kinds) async =>
       await call<bool>('permissions', {'kinds': kinds}) ?? false;
 
-  static bool _btOffered = false;
-
-  /// Bluetooth makes discovery near-instant (the receiver beacons, the sender
-  /// hears it within a second); without it we fall back to slow Wi-Fi Direct
-  /// discovery. Show Android's one-tap "turn on Bluetooth?" popup once per
-  /// app run when it's off; the radar keeps a hint card for later.
-  static Future<void> offerBluetooth() async {
-    if (_btOffered || await call<bool>('btOn') != false) return;
-    _btOffered = true;
-    await call('btSettings');
-  }
-
   static Future<List<Map<String, dynamic>>> list(String method, [Map<String, dynamic>? args]) async {
     final r = await _ch.invokeListMethod<Map>(method, args) ?? const [];
     return r.map((e) => Map<String, dynamic>.from(e)).toList();

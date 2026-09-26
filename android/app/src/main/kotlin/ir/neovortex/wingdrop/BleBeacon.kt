@@ -49,6 +49,9 @@ class BleBeacon(context: Context) {
         }, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
     }
 
+    /** Receiver: the beacon is on the air (or starting). */
+    val beaconing: Boolean get() = advertising != null && usable
+
     val usable: Boolean get() = Build.VERSION.SDK_INT >= 31 && bt?.isEnabled == true
 
     /** Receiver: announce the group name. */

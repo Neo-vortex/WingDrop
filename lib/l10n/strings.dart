@@ -320,6 +320,11 @@ class S {
         'To link up with the other phone directly I need to talk to nearby Wi-Fi devices. I don\'t track where you are, promise.',
         'برای اینکه مستقیم به اون گوشی وصل شم باید با دستگاه‌های وای‌فای اطراف حرف بزنم. قول می‌دم مکانت رو دنبال نکنم.',
       );
+  String get btAskTitle => _t('Mind turning on Bluetooth? 🔵', 'بلوتوث رو روشن کنیم؟ 🔵');
+  String get btAskBody => _t(
+        'It lets the two phones spot each other in about a second instead of a long wait. Only a tiny "I\'m here" signal goes over it; your files still fly over Wi-Fi.',
+        'اینطوری دو تا گوشی تو یه ثانیه همدیگه رو پیدا می‌کنن، نه بعد از یه انتظار طولانی. فقط یه سیگنال کوچولوی «من اینجام» ازش رد می‌شه؛ فایلات همچنان با وای‌فای می‌رن.',
+      );
   String get permMediaTitle => _t('Mind if I look at your media? 🖼️', 'اجازه می‌دی عکس و فیلمات رو ببینم؟ 🖼️');
   String get permMediaBody => _t(
         'That\'s how I can show your photos, videos and music so you can pick what to send. Nothing leaves your phone unless you send it.',

@@ -51,6 +51,9 @@ class _ReceiveViewState extends State<_ReceiveView> {
     if (!mounted) return;
     await maybeAskNotifications(context);
     await cubit.start();
+    // The beacon (near-instant discovery for senders) needs Bluetooth; it
+    // starts by itself once Bluetooth comes on.
+    if (mounted && cubit.state.pairing?.mode == 'p2p') await offerBluetooth(context);
   }
 
   Future<bool> _confirmStop() async {
@@ -231,11 +234,23 @@ class _QrCard extends StatelessWidget {
         ]),
         if (!state.beacon) ...[
           const SizedBox(height: 12),
-          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Icon(Icons.bluetooth_disabled_rounded, size: 14, color: cs.onSurfaceVariant),
-            const SizedBox(width: 6),
-            Flexible(child: Text(s.receiverBtOff, style: t.bodySmall?.copyWith(color: cs.onSurfaceVariant))),
-          ]),
+          // Tapping it goes straight to Android's "turn on Bluetooth?" popup.
+          InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () async {
+              if (await ensurePermission(context, 'nearby')) await Bridge.call('btSettings');
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Icon(Icons.bluetooth_disabled_rounded, size: 14, color: cs.onSurfaceVariant),
+                const SizedBox(width: 6),
+                Flexible(child: Text(s.receiverBtOff, style: t.bodySmall?.copyWith(color: cs.onSurfaceVariant))),
+                const SizedBox(width: 6),
+                Text(s.turnOn, style: t.bodySmall?.copyWith(color: cs.primary, fontWeight: FontWeight.w700)),
+              ]),
+            ),
+          ),
         ],
         const SizedBox(height: 22),
         Breathing(

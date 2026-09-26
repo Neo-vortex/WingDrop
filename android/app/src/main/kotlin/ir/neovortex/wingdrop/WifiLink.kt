@@ -324,6 +324,9 @@ class WifiLink(private val context: Context) {
         return bySsid.values.toList()
     }
 
+    /** Receiver: senders can hear our Bluetooth beacon. */
+    fun beaconing() = ble.beaconing
+
     fun stopDiscovery() {
         ble.stopScan()
         val mgr = p2p ?: return

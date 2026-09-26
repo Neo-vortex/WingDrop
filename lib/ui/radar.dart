@@ -83,7 +83,7 @@ class _DiscoveryRadarState extends State<DiscoveryRadar> {
     // Reading the list is cheap (it's in memory); poll often so a beacon shows
     // up the moment it's heard.
     _timer = Timer.periodic(const Duration(milliseconds: 500), (_) => _poll());
-    Bridge.offerBluetooth();
+    offerBluetooth(context);
   }
 
   bool _discovering = false;
@@ -217,10 +217,9 @@ class _DiscoveryRadarState extends State<DiscoveryRadar> {
                       title: Text(s.btOffTitle, style: t.titleSmall),
                       subtitle: Text(s.btOffBody),
                       trailing: TextButton(
+                        // They tapped "Turn on" themselves: straight to the popup.
                         onPressed: () async {
-                          // Android's "turn on Bluetooth?" popup needs the Bluetooth part of Nearby devices.
-                          await ensurePermission(context, 'nearby');
-                          await Bridge.call('btSettings');
+                          if (await ensurePermission(context, 'nearby')) await Bridge.call('btSettings');
                         },
                         child: Text(s.turnOn),
                       ),

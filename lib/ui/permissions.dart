@@ -35,6 +35,31 @@ Future<bool> ensurePermission(BuildContext context, String kind) async {
   return false;
 }
 
+bool _btOffered = false;
+
+/// Bluetooth makes discovery near-instant (the receiver beacons, the sender
+/// hears it within a second); without it we fall back to slow Wi-Fi Direct
+/// discovery. When it's off, explain why once per app run, then show
+/// Android's one-tap "turn on Bluetooth?" popup. The radar keeps a hint card
+/// for later, which calls this with [force].
+Future<void> offerBluetooth(BuildContext context, {bool force = false}) async {
+  if ((_btOffered && !force) || await Bridge.call<bool>('btOn') != false || !context.mounted) return;
+  _btOffered = true;
+  final s = S.of(context);
+  final go = await _sheet(
+    context,
+    icon: Icons.bluetooth_searching_rounded,
+    title: s.btAskTitle,
+    body: s.btAskBody,
+    primary: s.turnOn,
+    secondary: s.notNow,
+  );
+  if (go != true || !context.mounted) return;
+  // Android's popup needs the Bluetooth part of Nearby devices.
+  if (!await ensurePermission(context, 'nearby')) return;
+  await Bridge.call('btSettings');
+}
+
 /// Notifications are optional: ask once, kindly, and never block the flow.
 Future<void> maybeAskNotifications(BuildContext context) async {
   if (await Bridge.call<String>('prefsGet', {'key': 'askedNotif'}) == '1') return;
