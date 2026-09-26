@@ -76,15 +76,27 @@ class _DiscoveryRadarState extends State<DiscoveryRadar> {
     Bridge.list('bonds').then((b) {
       if (mounted) setState(() => _trusted = {for (final x in b) x['id'] as String});
     });
-    Bridge.call('discoverStart');
+    if (!_discovering) Bridge.call('discoverStart');
+    _discovering = true;
     _poll();
     _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 3), (_) => _poll());
+    // Reading the list is cheap (it's in memory); poll often so a beacon shows
+    // up the moment it's heard.
+    _timer = Timer.periodic(const Duration(milliseconds: 500), (_) => _poll());
+    Bridge.offerBluetooth();
   }
 
+  bool _discovering = false;
+
+
+  bool _polling = false;
+
   Future<void> _poll() async {
+    if (_polling) return;
+    _polling = true;
     final list = await Bridge.list('discovered').catchError((_) => <Map<String, dynamic>>[]);
     final bt = await Bridge.call<bool>('btOn') ?? true;
+    _polling = false;
     if (!mounted) return;
     if (bt != _btOn) setState(() => _btOn = bt);
     list.sort((a, b) => ((b['bars'] as int?) ?? -1).compareTo((a['bars'] as int?) ?? -1));
@@ -94,7 +106,7 @@ class _DiscoveryRadarState extends State<DiscoveryRadar> {
   @override
   void dispose() {
     _timer?.cancel();
-    Bridge.call('discoverStop');
+    if (_discovering) Bridge.call('discoverStop');
     super.dispose();
   }
 

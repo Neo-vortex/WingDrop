@@ -41,11 +41,23 @@ class _PickerView extends StatefulWidget {
 
 class _PickerViewState extends State<_PickerView> with SingleTickerProviderStateMixin {
   late final TabController _tabs = TabController(length: 5, vsync: this);
+  bool _warm = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _askMedia());
+    _warmUp();
+  }
+
+  /// Start looking for receivers while files are being picked, so the radar
+  /// usually has them by the time it opens. Only when already allowed: the
+  /// picker never asks for the nearby permission itself.
+  Future<void> _warmUp() async {
+    final ok = await Bridge.call<bool>('hasPermissions', {'kinds': ['nearby']}) == true;
+    if (!ok || !mounted || await Bridge.call<bool>('wifiOn') != true || !mounted) return;
+    _warm = true;
+    await Bridge.call('discoverStart');
   }
 
   Future<void> _askMedia() async {
@@ -55,6 +67,7 @@ class _PickerViewState extends State<_PickerView> with SingleTickerProviderState
 
   @override
   void dispose() {
+    if (_warm) Bridge.call('discoverStop');
     _tabs.dispose();
     super.dispose();
   }

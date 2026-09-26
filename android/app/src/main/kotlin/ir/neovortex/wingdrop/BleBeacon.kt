@@ -1,6 +1,7 @@
 package ir.neovortex.wingdrop
 
 import android.annotation.SuppressLint
+import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
@@ -9,7 +10,10 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.os.Build
 import android.util.Log
 import java.util.concurrent.ConcurrentHashMap
@@ -27,11 +31,31 @@ class BleBeacon(context: Context) {
     private var scanning: ScanCallback? = null
     private val seen = ConcurrentHashMap<String, Pair<Int, Long>>() // ssid -> (rssi, time)
 
+    // What the app wants right now, so both resume the moment Bluetooth is
+    // switched on (the radar asks for it) without waiting for a new session.
+    private var beaconName: String? = null
+    private var scanWanted = false
+
+    init {
+        context.applicationContext.registerReceiver(object : BroadcastReceiver() {
+            override fun onReceive(c: Context, i: Intent) {
+                if (i.getIntExtra(BluetoothAdapter.EXTRA_STATE, 0) != BluetoothAdapter.STATE_ON) return
+                // The old callbacks died with the adapter.
+                advertising = null
+                scanning = null
+                beaconName?.let { Diag.i(TAG, "Bluetooth on: beacon resumes"); advertise(it) }
+                if (scanWanted) { Diag.i(TAG, "Bluetooth on: scan resumes"); scan() }
+            }
+        }, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
+    }
+
     val usable: Boolean get() = Build.VERSION.SDK_INT >= 31 && bt?.isEnabled == true
 
     /** Receiver: announce the group name. */
     fun advertise(ssid: String) {
+        if (ssid == beaconName && advertising != null) return
         stopAdvertising()
+        beaconName = ssid
         if (!usable) return
         val adv = bt?.bluetoothLeAdvertiser ?: return
         // Legacy advertising leaves 24 bytes of manufacturer data after the
@@ -43,7 +67,7 @@ class BleBeacon(context: Context) {
             .build()
         val settings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
-            .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM)
+            .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
             .setConnectable(false)
             .build()
         val cb = object : AdvertiseCallback() {
@@ -53,6 +77,7 @@ class BleBeacon(context: Context) {
 
             override fun onStartFailure(errorCode: Int) {
                 Diag.w(TAG, "beacon failed: $errorCode")
+                if (advertising === this) advertising = null
             }
         }
         advertising = cb
@@ -62,10 +87,12 @@ class BleBeacon(context: Context) {
     fun stopAdvertising() {
         advertising?.let { cb -> runCatching { bt?.bluetoothLeAdvertiser?.stopAdvertising(cb) } }
         advertising = null
+        beaconName = null
     }
 
     /** Sender: listen for receivers' beacons. */
     fun scan() {
+        scanWanted = true
         if (scanning != null || !usable) return
         val scanner = bt?.bluetoothLeScanner ?: return
         val cb = object : ScanCallback() {
@@ -89,6 +116,7 @@ class BleBeacon(context: Context) {
     }
 
     fun stopScan() {
+        scanWanted = false
         scanning?.let { cb -> runCatching { bt?.bluetoothLeScanner?.stopScan(cb) } }
         scanning = null
         seen.clear()

@@ -136,6 +136,10 @@ class WifiLink(private val context: Context) {
         }
         val config = builder.build()
 
+        // The group name is ours, so beacon it now: senders find us while the
+        // group is still coming up (1-3 s) and join as soon as it's there.
+        ble.advertise(ssid)
+
         // A stale group blocks createGroup; remove it first and ignore failures.
         mgr.removeGroup(ch, object : WifiP2pManager.ActionListener {
             override fun onSuccess() = create()
@@ -146,7 +150,10 @@ class WifiLink(private val context: Context) {
                     override fun onFailure(reason: Int) {
                         // Some chips refuse a forced band (e.g. 5 GHz while roaming on a DFS channel).
                         if (band != "auto") hostP2p(ssid, "auto", security, cb)
-                        else cb(Result.failure(IllegalStateException("Wi-Fi Direct group failed (${p2pReason(reason)})")))
+                        else {
+                            ble.stopAdvertising()
+                            cb(Result.failure(IllegalStateException("Wi-Fi Direct group failed (${p2pReason(reason)})")))
+                        }
                     }
                 })
             }
@@ -227,10 +234,14 @@ class WifiLink(private val context: Context) {
     }
 
     private var lastDiscover = 0L
+    private var lastRadarLog = ""
 
     /** Sender side: start looking for receivers advertising the service. */
     fun startDiscovery() {
         ble.scan()
+        // Already searching (warmed up by the picker): restarting would cut
+        // the running Wi-Fi Direct search cycle short.
+        if (serviceRequest != null) return
         lastDiscover = System.currentTimeMillis()
         val mgr = p2p ?: return
         val ch = p2pChannel()
@@ -307,7 +318,9 @@ class WifiLink(private val context: Context) {
             if ((d["seen"]?.toLongOrNull() ?: 0) < cutoff) continue
             entry(d["s"] ?: continue, d)
         }
-        Diag.i(TAG, "radar: ${heard.size} via BLE, ${discovered.size} via DNS-SD, ${scan.size} in scan, ${bySsid.size} receiver(s)")
+        val summary = "radar: ${heard.size} via BLE, ${discovered.size} via DNS-SD, ${scan.size} in scan, ${bySsid.size} receiver(s)"
+        if (summary != lastRadarLog) Diag.i(TAG, summary) // polled twice a second: log changes only
+        lastRadarLog = summary
         return bySsid.values.toList()
     }
 
@@ -524,9 +537,17 @@ class WifiLink(private val context: Context) {
     // ------------------------------------------------------------------ teardown
 
     /** Receivers around us, read from ordinary Wi-Fi scan results (Wi-Fi Direct groups beacon too). */
+    private var lastWifiScan = 0L
+
     fun nearby(): List<Map<String, Any>> {
-        @Suppress("DEPRECATION")
-        runCatching { wifi.startScan() } // throttled by the OS; cached results are fine
+        // Android allows 4 scans per 2 minutes; the radar polls twice a
+        // second, so ask rarely and read the cached results in between.
+        val now = System.currentTimeMillis()
+        if (now - lastWifiScan > 30_000) {
+            lastWifiScan = now
+            @Suppress("DEPRECATION")
+            runCatching { wifi.startScan() }
+        }
         return runCatching { wifi.scanResults }.onFailure { Diag.w(TAG, "scan results unavailable: $it") }
             .getOrDefault(emptyList())
             .mapNotNull { r ->

@@ -1,6 +1,21 @@
-# WingDrop
+<p align="center">
+  <img src="assets/images/logo.png" alt="WingDrop logo" width="160">
+</p>
 
-Fast, calm, local file sharing for Android. Flutter UI, native C++ transfer engine.
+<h1 align="center">WingDrop</h1>
+
+<p align="center">
+  Fast, calm, local file sharing for Android. Flutter UI, native C++ transfer engine.
+</p>
+
+<p align="center">
+  <a href="https://github.com/Neo-vortex/WingDrop/actions/workflows/android.yml"><img src="https://github.com/Neo-vortex/WingDrop/actions/workflows/android.yml/badge.svg" alt="Build"></a>
+  <a href="https://github.com/Neo-vortex/WingDrop/releases/latest"><img src="https://img.shields.io/github/v/release/Neo-vortex/WingDrop?label=download" alt="Latest release"></a>
+</p>
+
+## Download
+
+Signed APKs are published on the [Releases](https://github.com/Neo-vortex/WingDrop/releases) page by CI on every push to `main`. Most phones want the `arm64-v8a` APK. The version is `major.minor.<build number>`, so a higher number is always newer.
 
 ## Layout
 

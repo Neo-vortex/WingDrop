@@ -20,6 +20,7 @@ import java.util.concurrent.Executors
 class MainActivity : FlutterActivity() {
     private val bg = Executors.newCachedThreadPool()
     private val main = Handler(Looper.getMainLooper())
+    private var discoverUsers = 0
     private lateinit var wifi: WifiLink
     private lateinit var media: MediaRepo
     private lateinit var store: ReceiveStore
@@ -206,12 +207,16 @@ class MainActivity : FlutterActivity() {
             "send" -> send(call, result)
             "nearby" -> async(result) { wifi.nearby() }
             "discoverStart" -> {
+                // The picker warms the search up and the radar joins it; the
+                // search stops when the last of them lets go.
+                discoverUsers++
                 wifi.startDiscovery()
                 result.success(null)
             }
             "discovered" -> async(result) { wifi.discovered() }
             "discoverStop" -> {
-                wifi.stopDiscovery()
+                discoverUsers = (discoverUsers - 1).coerceAtLeast(0)
+                if (discoverUsers == 0) wifi.stopDiscovery()
                 result.success(null)
             }
             "signal" -> result.success(wifi.signal())

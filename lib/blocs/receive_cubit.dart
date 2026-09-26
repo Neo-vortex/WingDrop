@@ -119,6 +119,9 @@ class ReceiveCubit extends Cubit<ReceiveState> {
             },
           }) ??
           {});
+      // The beacon (and so near-instant discovery) needs Bluetooth; it
+      // starts by itself once Bluetooth comes on.
+      if (r['mode'] == 'p2p') Bridge.offerBluetooth();
       final pairing = Pairing(
         mode: r['mode'],
         hosts: (r['hosts'] as List).cast<String>(),
