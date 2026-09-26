@@ -26,8 +26,7 @@ Signed APKs are published on the [Releases](https://github.com/Neo-vortex/WingDr
 | `android/app/src/main/cpp/aegis.*` | AEGIS-128L on ARMv8 AES / x86 AES-NI, IETF known-answer self-test at startup; XChaCha20-Poly1305 (Monocypher) fallback |
 | `android/app/src/main/cpp/perf.*` | Big-core affinity, raised priority, ADPF performance hints |
 | `android/app/src/main/cpp/bench.*` | Built-in device benchmark |
-| `android/app/src/main/kotlin/ir/neovortex/wingdrop/GpuShrinker.kt` | Video shrinking on the GPU: hardware decoder → texture → one GL draw (4-tap area filter, crop-to-fill) → hardware encoder surface. About 2–3× faster than the FFmpeg path on 4K; `media::mux` then adds the audio |
-| `android/app/src/main/cpp/media.*` | Media shrinking with the bundled FFmpeg 8 (LGPL) and MediaCodec hardware encoders: music, and videos the GPU path hands back (HDR, Dolby Vision) |
+| `android/app/src/main/cpp/media.*` | Media shrinking with the bundled FFmpeg 8 (LGPL) and MediaCodec hardware encoders |
 | `android/app/src/main/kotlin/ir/neovortex/wingdrop/` | Wi-Fi Direct / local hotspot (2.4/5/6 GHz, WPA2/WPA3), DNS-SD discovery, MediaStore/SAF fds, QR scanner (CameraX + ZXing), HEIC, installer |
 | `lib/` | Flutter UI (BLoC), English + Persian |
 

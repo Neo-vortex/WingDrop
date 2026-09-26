@@ -295,19 +295,6 @@ extern "C" JNIEXPORT jint JNICALL JNI_FN(nativeTranscode)(JNIEnv*, jclass, jint 
     return media::transcode(job, inFd, outFd, static_cast<media::Kind>(kind), static_cast<media::Preset>(preset));
 }
 
-extern "C" JNIEXPORT jint JNICALL JNI_FN(nativeMux)(JNIEnv*, jclass, jint job, jint videoFd, jint srcFd, jint outFd,
-                                                    jint preset) {
-    return media::mux(job, videoFd, srcFd, outFd, static_cast<media::Preset>(preset));
-}
-
-extern "C" JNIEXPORT jdoubleArray JNICALL JNI_FN(nativeVideoPlan)(JNIEnv* env, jclass, jint preset) {
-    media::VideoPlan p = media::videoPlan(static_cast<media::Preset>(preset));
-    jdouble v[3] = {static_cast<double>(p.maxLongSide), p.bitsPerPixel, p.maxOfSource};
-    jdoubleArray a = env->NewDoubleArray(3);
-    env->SetDoubleArrayRegion(a, 0, 3, v);
-    return a;
-}
-
 extern "C" JNIEXPORT jdouble JNICALL JNI_FN(nativeTranscodeProgress)(JNIEnv*, jclass, jint job) {
     return media::progress(job);
 }
