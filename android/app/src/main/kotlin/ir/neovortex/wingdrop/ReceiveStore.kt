@@ -16,7 +16,7 @@ import java.util.concurrent.Executors
 /**
  * Creates destination files for incoming transfers and hands raw fds to the
  * native engine, which pwrite()s / splice()s straight into them. Targets either
- * MediaStore (Pictures, Movies, Music, Download under "WingDrop") or a folder
+ * MediaStore (Download/WingDroid/Photos, Videos, Music, Apps, Files) or a folder
  * the user picked through SAF.
  *
  * Interrupted transfers keep their partial files plus a chunk bitmap (persisted
@@ -78,7 +78,7 @@ class ReceiveStore(private val context: Context, val trust: Trust) {
             val rel = rels[i].split('/').filter { it.isNotBlank() }.map(::sanitize).joinToString("/")
             val mime = mimeOf(name)
             try {
-                val uri = if (tree != null) createInTree(tree, rel, name, mime) else createInMediaStore(name, rel, cats[i], mime)
+                val uri = if (tree != null) createInTree(tree, rel, cats[i], name, mime) else createInMediaStore(name, rel, cats[i], mime)
                 val pfd = context.contentResolver.openFileDescriptor(uri!!, "rw")!!
                 fds[i] = pfd.detachFd()
                 created += Item(name, rel, cats[i], sizes[i], mime, uri, batch = batch, index = i)
@@ -185,30 +185,42 @@ class ReceiveStore(private val context: Context, val trust: Trust) {
         }
     }
 
-    private fun createInMediaStore(name: String, rel: String, category: Int, mime: String): Uri? {
-        val sub = if (rel.isEmpty()) "" else "/$rel"
-        val (collection, base) = when {
-            category == CAT_PHOTO && mime.startsWith("image/") ->
-                MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY) to Environment.DIRECTORY_PICTURES
-            category == CAT_VIDEO && mime.startsWith("video/") ->
-                MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY) to Environment.DIRECTORY_MOVIES
-            category == CAT_MUSIC && mime.startsWith("audio/") ->
-                MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY) to Environment.DIRECTORY_MUSIC
-            else -> MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY) to Environment.DIRECTORY_DOWNLOADS
+    /**
+     * Where a file goes inside the app's own folder, like SHAREit's:
+     * WingDroid/Photos, Videos, Music, Apps (an app's rel already starts
+     * with "Apps") or Files (a sent folder keeps its structure in there).
+     */
+    private fun appPath(category: Int, mime: String, rel: String): String {
+        val type = when {
+            category == CAT_APP -> ""
+            category == CAT_PHOTO && mime.startsWith("image/") -> "Photos"
+            category == CAT_VIDEO && mime.startsWith("video/") -> "Videos"
+            category == CAT_MUSIC && mime.startsWith("audio/") -> "Music"
+            else -> "Files"
         }
+        return listOf(APP_DIR, type, rel).filter { it.isNotEmpty() }.joinToString("/")
+    }
+
+    /**
+     * Download/WingDroid/...: scoped storage allows no folders of our own at
+     * the storage root (that takes "All files access"), and the Images/Video
+     * collections only take DCIM or Pictures. The Downloads collection takes
+     * any type, and photos and videos there still show up in the gallery.
+     */
+    private fun createInMediaStore(name: String, rel: String, category: Int, mime: String): Uri? {
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, name)
             put(MediaStore.MediaColumns.MIME_TYPE, mime)
-            put(MediaStore.MediaColumns.RELATIVE_PATH, "$base/WingDrop$sub")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/${appPath(category, mime, rel)}")
             put(MediaStore.MediaColumns.IS_PENDING, 1)
         }
-        return context.contentResolver.insert(collection, values)
+        return context.contentResolver.insert(MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY), values)
     }
 
-    private fun createInTree(tree: Uri, rel: String, name: String, mime: String): Uri? {
+    private fun createInTree(tree: Uri, rel: String, category: Int, name: String, mime: String): Uri? {
         val cr = context.contentResolver
         var parent = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
-        for (dir in listOf("WingDrop") + rel.split('/').filter { it.isNotEmpty() }) {
+        for (dir in appPath(category, mime, rel).split('/').filter { it.isNotEmpty() }) {
             parent = findChild(tree, parent, dir)
                 ?: DocumentsContract.createDocument(cr, parent, DocumentsContract.Document.MIME_TYPE_DIR, dir)
                 ?: return null
@@ -237,6 +249,7 @@ class ReceiveStore(private val context: Context, val trust: Trust) {
         const val CAT_VIDEO = 2
         const val CAT_MUSIC = 3
         const val CAT_APP = 4
+        const val APP_DIR = "WingDroid"
 
         fun mimeOf(name: String): String {
             val ext = name.substringAfterLast('.', "").lowercase()

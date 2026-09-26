@@ -274,7 +274,7 @@ class _PeerTile extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.all(14),
             child: Row(children: [
-              BuddyAvatar(index: p.buddy, size: 52),
+              BuddyAvatar(index: p.buddy, size: 52, intro: true),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

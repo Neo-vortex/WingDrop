@@ -332,6 +332,7 @@ class SendItem {
     this.rel = '',
     this.mime = '',
     this.heic = false,
+    this.keep = false,
   });
 
   final String id;
@@ -344,8 +345,13 @@ class SendItem {
   final String mime;
   bool heic;
 
+  /// Part of a picked folder: goes exactly as it is (never shrunk or
+  /// converted), so the folder arrives as it was.
+  final bool keep;
+
   /// Photos, videos and music can be shrunk; other files and apps never are.
-  bool get isMedia => cat != 4 && (mime.startsWith('image/') || mime.startsWith('video/') || mime.startsWith('audio/'));
+  bool get isMedia =>
+      !keep && cat != 4 && (mime.startsWith('image/') || mime.startsWith('video/') || mime.startsWith('audio/'));
 
   Map<String, dynamic> toArgs() => {'uri': uri, 'path': path, 'name': name, 'rel': rel, 'cat': cat, 'mime': mime};
 }

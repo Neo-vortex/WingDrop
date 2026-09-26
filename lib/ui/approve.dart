@@ -22,7 +22,7 @@ Future<int> askApproval(BuildContext context, Map args) async {
         child: Padding(
           padding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            BuddyAvatar(index: buddy, size: 84),
+            BuddyAvatar(index: buddy, size: 84, intro: true),
             const SizedBox(height: 18),
             Text(
               s.wantsToSend(who, args['files'] as int, fmtBytes(s, args['bytes'] as int)),

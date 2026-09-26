@@ -38,7 +38,8 @@ class BuddyPicker extends StatelessWidget {
                     scale: i == selected ? 1.08 : 1,
                     duration: kSoft,
                     curve: Curves.easeOutBack,
-                    child: BuddyAvatar(index: i, size: 54),
+                    // Says hi when picked (the tap itself plays it too).
+                    child: BuddyAvatar(index: i, size: 54, trigger: i == selected),
                   ),
                 ),
                 const SizedBox(height: 4),

@@ -467,7 +467,8 @@ class _FilesTab extends StatelessWidget {
   Future<void> _pickFolder(BuildContext context) async {
     final picked = await Bridge.list('pickFolder');
     if (!context.mounted) return;
-    context.read<PickerCubit>().addFiles([
+    if (picked.isEmpty) return; // cancelled, or an empty folder: nothing to send
+    final items = [
       for (final m in picked)
         SendItem(
           id: m['uri'],
@@ -477,9 +478,10 @@ class _FilesTab extends StatelessWidget {
           cat: 0,
           rel: m['rel'],
           mime: m['mime'],
-          heic: m['heic'] == true,
+          keep: true,
         ),
-    ]);
+    ];
+    context.read<PickerCubit>().addFolder((picked.first['rel'] as String).split('/').first, items);
   }
 
   @override
@@ -503,6 +505,14 @@ class _FilesTab extends StatelessWidget {
           ),
         ]),
         const SizedBox(height: 12),
+        for (final d in st.folders)
+          CheckboxListTile(
+            value: st.selected.containsKey(d.key),
+            onChanged: (_) => context.read<PickerCubit>().toggle(d.key, () => d.items),
+            secondary: Icon(Icons.folder_rounded, color: Theme.of(context).colorScheme.primary),
+            title: Text(d.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+            subtitle: Text(s.folderSummary(d.items.length, fmtBytes(s, d.bytes)), maxLines: 1),
+          ),
         for (final f in st.files)
           CheckboxListTile(
             value: st.selected.containsKey(f.id),

@@ -104,6 +104,8 @@ class S {
   String get shrinkSetting => _t('Make media lighter', 'سبک‌تر کردن رسانه‌ها');
   String get shrinkAsk => _t('Ask me', 'بپرس');
   String get addFolder => _t('Add folder', 'اضافه کردن پوشه');
+  String folderSummary(int n, String size) =>
+      _t(n == 1 ? '1 file · $size · goes as it is' : '$n files · $size · goes as it is', '$n فایل · $size · همون‌طور که هست می‌ره');
   String get converting => _t('Turning photos into JPEG…', 'دارم عکس‌ها رو JPEG می‌کنم…');
   String get convertingSub => _t('All cores on it, won\'t take long', 'همه‌ی هسته‌ها دارن کار می‌کنن، زیاد طول نمی‌کشه');
   String get scanTitle => _t('Now scan the code on the other phone', 'حالا کدی که رو گوشی اون یکیه رو اسکن کن');
@@ -412,7 +414,8 @@ class S {
   String get heicNever => _t('Keep', 'نگه دار');
   String get jpegQuality => _t('JPEG quality', 'کیفیت JPEG');
   String get saveTo => _t('Save received files to', 'فایل‌های دریافتی کجا ذخیره بشن');
-  String get saveDefault => _t('Gallery, Music and Downloads', 'گالری، آهنگ‌ها و دانلودها');
+  String get saveDefault => _t('Download/WingDroid (photos and videos show in your gallery too)',
+      'Download/WingDroid (عکس و فیلم‌ها تو گالری هم دیده می‌شن)');
   String get change => _t('Change', 'تغییر');
   String get reset => _t('Reset', 'پیش‌فرض');
   String get appearance => _t('Look & language', 'ظاهر و زبان');
