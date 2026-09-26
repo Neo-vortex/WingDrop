@@ -155,6 +155,7 @@ class _SendView extends StatelessWidget {
           key: const ValueKey('scan'),
           padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
           children: [
+            _PrepLine(state: st),
             DiscoveryRadar(
               onPick: (picked) async {
                 final cubit = context.read<SendCubit>();
@@ -204,6 +205,7 @@ class _SendView extends StatelessWidget {
             SoftText(_stageText(s, st), style: t.titleMedium, textAlign: TextAlign.center),
             const SizedBox(height: 8),
             _Elapsed(since: st.stageSince),
+            if (st.stage != 'shrinking') ...[const SizedBox(height: 16), _PrepLine(state: st)],
             const SizedBox(height: 28),
             TextButton(onPressed: () => context.read<SendCubit>().cancelConnect(), child: Text(s.cancel)),
           ],
@@ -249,6 +251,8 @@ class _SendView extends StatelessWidget {
               connectingText: st.peer == null ? null : s.waitingFor(peerName(s, st.peer!.buddy, st.peer!.nick)),
               onRetry: () => context.read<SendCubit>().retry(),
               onFinished: (stats) => context.read<SendCubit>().finished(),
+              preparing: st.preparing,
+              prepProgress: st.convertProgress,
             ),
             if (st.step == SendStep.finished) ...[
               const SizedBox(height: 24),
@@ -294,6 +298,7 @@ String _stageText(S s, SendState st) {
     'system_prompt' => s.stageSystemPrompt,
     'joined' || 'reaching' => s.stageReaching(who),
     'approval' => s.waitingFor(who),
+    'shrinking' => s.shrinking,
     _ => s.stageJoining(who),
   };
 }
@@ -512,4 +517,41 @@ class _Centered extends StatelessWidget {
           child: Column(mainAxisSize: MainAxisSize.min, children: children),
         ),
       );
+}
+
+/// "Shrinking 3 files in the background · 45%": a quiet line while the
+/// person picks a phone or the ready files are already on their way.
+class _PrepLine extends StatelessWidget {
+  const _PrepLine({required this.state});
+
+  final SendState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    final cs = Theme.of(context).colorScheme;
+    return AnimatedSize(
+      duration: kSoft,
+      curve: kEase,
+      child: state.preparing == 0
+          ? const SizedBox(width: double.infinity)
+          : Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Column(children: [
+                Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  Icon(Icons.compress_rounded, size: 16, color: cs.primary),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: SoftText(
+                      context.s.prepLine(state.preparing, (state.convertProgress * 100).round()),
+                      style: t.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                    ),
+                  ),
+                ]),
+                const SizedBox(height: 6),
+                SizedBox(width: 180, child: GlideBar(value: state.convertProgress, height: 4)),
+              ]),
+            ),
+    );
+  }
 }

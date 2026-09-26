@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -33,7 +34,9 @@ class Target {
   final Pairing pairing;
   final bool trusted;
   TargetState state = TargetState.waiting;
-  int? session;
+  int? session; // the first one; the view is keyed by it
+  final List<int> sessions = [];
+  final Set<String> sent = {}; // item ids that reached this phone
   String error = '';
   int retries = 0;
 }
@@ -51,6 +54,7 @@ class SendState {
     this.revision = 0,
     this.stage = '',
     this.stageSince,
+    this.preparing = 0,
   });
 
   final SendStep step;
@@ -68,6 +72,9 @@ class SendState {
   final String stage;
   final DateTime? stageSince;
 
+  /// Files still being shrunk in the background (they follow the rest).
+  final int preparing;
+
   /// The single phone we're sending to (for the header), if just one.
   Pairing? get peer => targets.length == 1 ? targets.first.pairing : null;
 
@@ -81,6 +88,7 @@ class SendState {
     List<Target>? targets,
     bool bump = false,
     String? stage,
+    int? preparing,
   }) =>
       SendState(
         step: step ?? this.step,
@@ -94,6 +102,7 @@ class SendState {
         revision: bump ? revision + 1 : revision,
         stage: stage ?? this.stage,
         stageSince: stage != null && stage != this.stage ? DateTime.now() : stageSince,
+        preparing: preparing ?? this.preparing,
       );
 }
 
@@ -118,6 +127,16 @@ class SendCubit extends Cubit<SendState> {
   Timer? _wifiWatch;
 
   // ---------------------------------------------------------------- media prep
+  //
+  // Shrinking runs in the background: the person picks a phone meanwhile, and
+  // files that need no shrinking are sent right away. The shrunk ones follow
+  // in a second session to the same phone, which the receiver accepts
+  // without asking again (the engine's follow-up key).
+
+  Future<void>? _prep;
+  final Set<String> _pending = {}; // ids of items being prepared
+  Completer<bool>? _heicLater; // convert leftover HEIC photos after shrinking?
+  bool _stopped = false;
 
   Future<void> begin() async {
     if (state.mediaCount > 0) {
@@ -125,29 +144,35 @@ class SendCubit extends Cubit<SendState> {
         emit(state.copyWith(step: SendStep.askShrink));
         return;
       }
-      if (settings.shrink == 'light' || settings.shrink == 'small') await _shrink(settings.shrink == 'light' ? 0 : 1);
+      if (settings.shrink == 'light' || settings.shrink == 'small') _startShrink(settings.shrink == 'light' ? 0 : 1);
     }
     await _afterShrink();
   }
 
   /// preset: null = send as is, 0 = a bit lighter, 1 = much lighter.
   Future<void> shrinkChoice(int? preset) async {
-    if (preset != null) await _shrink(preset);
+    if (preset != null) _startShrink(preset);
     await _afterShrink();
   }
 
-  Future<void> _shrink(int preset) async {
-    emit(state.copyWith(step: SendStep.shrinking, convertProgress: 0));
+  void _startShrink(int preset) {
     final media = state.items.where((i) => i.isMedia).toList();
+    _pending.addAll(media.map((m) => m.id));
+    emit(state.copyWith(convertProgress: 0, preparing: _pending.length));
+    _prep = _prepare(media, preset);
+  }
+
+  Future<void> _prepare(List<SendItem> media, int preset) async {
     final timer = Timer.periodic(const Duration(milliseconds: 500), (_) async {
       final p = await Bridge.call<double>('shrinkProgress');
-      if (!isClosed && p != null) emit(state.copyWith(convertProgress: p));
+      if (!isClosed && p != null && _pending.isNotEmpty) emit(state.copyWith(convertProgress: p));
     });
     try {
       final out = await Bridge.call<List>('shrink', {
         'items': [for (final m in media) {'uri': m.uri, 'path': m.path, 'name': m.name, 'mime': m.mime}],
         'preset': preset,
       });
+      if (isClosed) return;
       final items = List.of(state.items);
       for (var i = 0; i < media.length; i++) {
         final r = out?[i] as Map?;
@@ -163,34 +188,55 @@ class SendCubit extends Cubit<SendState> {
           mime: old.mime,
         );
       }
-      if (!isClosed) emit(state.copyWith(items: items, heicCount: items.where((i) => i.heic).length, convertProgress: 1));
+      emit(state.copyWith(items: items, heicCount: items.where((i) => i.heic).length, convertProgress: 1));
+      // HEIC photos the shrink left alone (not worth it): convert if asked to.
+      if (state.heicCount > 0 && await (_heicLater?.future ?? Future.value(false)) && !isClosed && !_stopped) {
+        await _convert(background: true);
+      }
+    } catch (e) {
+      // Shrinking is a nicety: whatever failed goes as the original.
+      Bridge.call('diagNote', {'text': 'shrink failed, sending originals: ${_clean(e)}'});
     } finally {
       timer.cancel();
+      _pending.clear();
+      if (!isClosed) emit(state.copyWith(preparing: 0, bump: true));
     }
   }
 
   Future<void> _afterShrink() async {
     if (state.heicCount > 0) {
       if (settings.heic == 'ask') {
+        if (_prep != null) _heicLater = Completer<bool>();
         emit(state.copyWith(step: SendStep.askHeic));
         return;
       }
-      if (settings.heic == 'convert') await _convert();
+      if (settings.heic == 'convert') {
+        if (_prep != null) {
+          _heicLater = Completer<bool>()..complete(true);
+        } else {
+          await _convert();
+        }
+      }
     }
     emit(state.copyWith(step: SendStep.scanning));
   }
 
   Future<void> heicChoice(bool convert) async {
-    if (convert) await _convert();
+    if (_heicLater != null) {
+      // Shrinking is still running; the answer applies to what it leaves.
+      if (!_heicLater!.isCompleted) _heicLater!.complete(convert);
+    } else if (convert) {
+      await _convert();
+    }
     emit(state.copyWith(step: SendStep.scanning));
   }
 
-  Future<void> _convert() async {
-    emit(state.copyWith(step: SendStep.converting, convertProgress: 0));
+  Future<void> _convert({bool background = false}) async {
+    if (!background) emit(state.copyWith(step: SendStep.converting, convertProgress: 0));
     final heics = state.items.where((i) => i.heic).toList();
     final timer = Timer.periodic(const Duration(milliseconds: 400), (_) async {
       final p = await Bridge.call<List>('heicProgress');
-      if (!isClosed && p != null && p[1] > 0) emit(state.copyWith(convertProgress: p[0] / p[1]));
+      if (!isClosed && !background && p != null && p[1] > 0) emit(state.copyWith(convertProgress: p[0] / p[1]));
     });
     try {
       final paths = await Bridge.call<List>('heicConvert', {
@@ -212,7 +258,7 @@ class SendCubit extends Cubit<SendState> {
           mime: 'image/jpeg',
         );
       }
-      if (!isClosed) emit(state.copyWith(items: items, convertProgress: 1));
+      if (!isClosed) emit(state.copyWith(items: items, convertProgress: background ? null : 1));
     } finally {
       timer.cancel();
     }
@@ -272,6 +318,10 @@ class SendCubit extends Cubit<SendState> {
   Future<void> _run() async {
     if (_running) return;
     _running = true;
+    _stopped = false;
+    // Shrunk files follow in a second session: keep both in one progress view.
+    final hold = _pending.isNotEmpty;
+    if (hold) Bridge.call('holdGroup', {'on': true});
     try {
       final pending = state.targets.where((t) => t.state == TargetState.waiting || t.state == TargetState.failed).toList();
       final lan = pending.where((t) => t.pairing.mode == 'lan').toList();
@@ -294,6 +344,7 @@ class SendCubit extends Cubit<SendState> {
         emit(state.copyWith(step: ok ? SendStep.finished : SendStep.transferring, bump: true));
       }
     } finally {
+      if (hold) Bridge.call('holdGroup', {'on': false});
       _running = false;
     }
   }
@@ -319,32 +370,63 @@ class SendCubit extends Cubit<SendState> {
         netHandle = (r['netHandle'] as int?) ?? 0;
       }
       _stage('reaching');
-      final id = await Bridge.call<int>('send', {
-        'hosts': hosts,
-        'port': t.pairing.port,
-        'key': t.pairing.key,
-        'netHandle': netHandle,
-        'items': state.items.map((e) => e.toArgs()).toList(),
-        'opts': [..._options(t.pairing), settings.buddy],
-        'nick': settings.nick,
-        'peerId': t.pairing.deviceId,
-        'useBond': t.trusted,
-      });
-      t.session = id;
+      // What's ready goes now; files still being shrunk follow in a second
+      // session as soon as they are done.
+      List<SendItem> unsent() => state.items.where((i) => !t.sent.contains(i.id)).toList();
+      var first = unsent().where((i) => !_pending.contains(i.id)).toList();
+      if (first.isEmpty && _prep != null) {
+        _stage('shrinking');
+        await _prep;
+        if (isClosed || _stopped) return;
+        first = unsent();
+      }
+      final rest = unsent().where((i) => !first.any((f) => f.id == i.id)).toList().isNotEmpty;
+
+      Future<int?> start(List<SendItem> items, List<int> key, {required bool useBond}) async {
+        final id = await Bridge.call<int>('send', {
+          'hosts': hosts,
+          'port': t.pairing.port,
+          'key': key,
+          'netHandle': netHandle,
+          'items': items.map((e) => e.toArgs()).toList(),
+          'opts': [..._options(t.pairing), settings.buddy],
+          'nick': settings.nick,
+          'peerId': t.pairing.deviceId,
+          'useBond': useBond,
+        });
+        if (id != null) {
+          t.session ??= id;
+          t.sessions.add(id);
+        }
+        return id;
+      }
+
+      final id = await start(first, t.pairing.key, useBond: t.trusted);
       _set(t, TargetState.sending);
-      final result = await _await(id!, (x) {
+      final follow = Completer<String>();
+      final firstIds = {for (final i in first) i.id};
+      final follower = rest ? _follow(t, firstIds, follow.future, start) : Future<SessionStats?>.value(null);
+      var result = await _await(id!, (x) {
         if (x.phase == 1) _stage('approval');
         if (x.phase == 2 && !started) {
           started = true;
           if (state.step != SendStep.transferring) emit(state.copyWith(step: SendStep.transferring));
         }
+        if (x.follow.isNotEmpty && !follow.isCompleted) follow.complete(x.follow);
       });
+      if (!follow.isCompleted) follow.complete('');
+      if (result.state == EngineState.done) t.sent.addAll(first.map((i) => i.id));
+      final second = await follower;
+      // The pair counts as one transfer: the second one's outcome decides
+      // once the first went through.
+      final bond = result.bond, peer = result.peer; // the bond comes with the first one
+      if (result.state == EngineState.done && second != null) result = second;
       final code = result.error;
       if (result.state == EngineState.done) {
         _set(t, TargetState.done);
         // They trust us now (QR pairing or "remember them"): keep the bond.
-        if (result.bond.isNotEmpty && result.peer.isNotEmpty) {
-          await Bridge.call('saveBond', {'id': result.peer, 'key': result.bond, 'buddy': t.pairing.buddy, 'nick': t.pairing.nick});
+        if (bond.isNotEmpty && peer.isNotEmpty) {
+          await Bridge.call('saveBond', {'id': peer, 'key': bond, 'buddy': t.pairing.buddy, 'nick': t.pairing.nick});
         }
       } else if (code == 'declined') {
         _set(t, TargetState.declined);
@@ -370,6 +452,32 @@ class SendCubit extends Cubit<SendState> {
         _joined = false;
       }
     }
+  }
+
+  /// The follow-up session: waits for the receiver's yes to the first one
+  /// (which yields the follow-up key) and for shrinking to finish, then sends
+  /// the prepared files. Null when there was nothing to follow up.
+  Future<SessionStats?> _follow(
+    Target t,
+    Set<String> firstIds,
+    Future<String> key,
+    Future<int?> Function(List<SendItem>, List<int>, {required bool useBond}) start,
+  ) async {
+    final hex = await key;
+    if (hex.isEmpty) return null; // declined or failed before they said yes
+    await _prep;
+    if (isClosed || _stopped) return null;
+    // The first session may still be running: its files are not ours.
+    final todo = state.items.where((i) => !t.sent.contains(i.id) && !firstIds.contains(i.id)).toList();
+    if (todo.isEmpty) return null;
+    final bytes = Uint8List.fromList([for (var i = 0; i < 64; i += 2) int.parse(hex.substring(i, i + 2), radix: 16)]);
+    Bridge.call('diagNote', {'text': 'follow-up: ${todo.length} prepared file(s) to ${t.pairing.ssid}'});
+    final id = await start(todo, bytes, useBond: false);
+    if (id == null) return null;
+    if (!isClosed) emit(state.copyWith(bump: true));
+    final r = await _await(id);
+    if (r.state == EngineState.done) t.sent.addAll(todo.map((i) => i.id));
+    return r;
   }
 
   /// Failures before any data moved get a clear explanation screen (for a
@@ -426,6 +534,7 @@ class SendCubit extends Cubit<SendState> {
 
   /// Stop trying to connect and go back to picking a phone.
   Future<void> cancelConnect() async {
+    _stopped = true;
     await Bridge.call('cancel', {'id': 0});
     if (_joined) {
       await Bridge.call('leave');
@@ -486,7 +595,11 @@ class SendCubit extends Cubit<SendState> {
     if (state.targets.every((t) => t.state == TargetState.done)) emit(state.copyWith(step: SendStep.finished));
   }
 
-  Future<void> cancel() => Bridge.call('cancel', {'id': 0});
+  Future<void> cancel() async {
+    _stopped = true;
+    if (_pending.isNotEmpty) Bridge.call('shrinkCancel');
+    await Bridge.call('cancel', {'id': 0});
+  }
 
   static String _clean(Object e) {
     final s = '$e';
@@ -497,7 +610,7 @@ class SendCubit extends Cubit<SendState> {
   @override
   Future<void> close() {
     _wifiWatch?.cancel();
-    if (state.step == SendStep.shrinking) Bridge.call('shrinkCancel');
+    if (_pending.isNotEmpty) Bridge.call('shrinkCancel');
     if (_joined) Bridge.call('leave');
     return super.close();
   }

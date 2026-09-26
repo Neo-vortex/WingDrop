@@ -252,6 +252,10 @@ extern "C" JNIEXPORT void JNICALL JNI_FN(nativeCancel)(JNIEnv*, jclass, jlong id
     wd::Engine::get().cancel(static_cast<uint64_t>(id));
 }
 
+extern "C" JNIEXPORT void JNICALL JNI_FN(nativeHoldGroup)(JNIEnv*, jclass, jboolean on) {
+    wd::Engine::get().holdGroup(on);
+}
+
 extern "C" JNIEXPORT jstring JNICALL JNI_FN(nativeStatus)(JNIEnv* env, jclass) {
     return env->NewStringUTF(wd::Engine::get().status().c_str());
 }
@@ -289,6 +293,19 @@ extern "C" JNIEXPORT jdoubleArray JNICALL JNI_FN(nativeBenchmark)(JNIEnv* env, j
 extern "C" JNIEXPORT jint JNICALL JNI_FN(nativeTranscode)(JNIEnv*, jclass, jint job, jint inFd, jint outFd, jint kind,
                                                           jint preset) {
     return media::transcode(job, inFd, outFd, static_cast<media::Kind>(kind), static_cast<media::Preset>(preset));
+}
+
+extern "C" JNIEXPORT jint JNICALL JNI_FN(nativeMux)(JNIEnv*, jclass, jint job, jint videoFd, jint srcFd, jint outFd,
+                                                    jint preset) {
+    return media::mux(job, videoFd, srcFd, outFd, static_cast<media::Preset>(preset));
+}
+
+extern "C" JNIEXPORT jdoubleArray JNICALL JNI_FN(nativeVideoPlan)(JNIEnv* env, jclass, jint preset) {
+    media::VideoPlan p = media::videoPlan(static_cast<media::Preset>(preset));
+    jdouble v[3] = {static_cast<double>(p.maxLongSide), p.bitsPerPixel, p.maxOfSource};
+    jdoubleArray a = env->NewDoubleArray(3);
+    env->SetDoubleArrayRegion(a, 0, 3, v);
+    return a;
 }
 
 extern "C" JNIEXPORT jdouble JNICALL JNI_FN(nativeTranscodeProgress)(JNIEnv*, jclass, jint job) {

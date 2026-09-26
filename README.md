@@ -26,7 +26,8 @@ Signed APKs are published on the [Releases](https://github.com/Neo-vortex/WingDr
 | `android/app/src/main/cpp/aegis.*` | AEGIS-128L on ARMv8 AES / x86 AES-NI, IETF known-answer self-test at startup; XChaCha20-Poly1305 (Monocypher) fallback |
 | `android/app/src/main/cpp/perf.*` | Big-core affinity, raised priority, ADPF performance hints |
 | `android/app/src/main/cpp/bench.*` | Built-in device benchmark |
-| `android/app/src/main/cpp/media.*` | Media shrinking with the bundled FFmpeg 8 (LGPL) and MediaCodec hardware encoders |
+| `android/app/src/main/kotlin/ir/neovortex/wingdrop/GpuShrinker.kt` | Video shrinking on the GPU: hardware decoder → texture → one GL draw (4-tap area filter, crop-to-fill) → hardware encoder surface. About 2–3× faster than the FFmpeg path on 4K; `media::mux` then adds the audio |
+| `android/app/src/main/cpp/media.*` | Media shrinking with the bundled FFmpeg 8 (LGPL) and MediaCodec hardware encoders: music, and videos the GPU path hands back (HDR, Dolby Vision) |
 | `android/app/src/main/kotlin/ir/neovortex/wingdrop/` | Wi-Fi Direct / local hotspot (2.4/5/6 GHz, WPA2/WPA3), DNS-SD discovery, MediaStore/SAF fds, QR scanner (CameraX + ZXing), HEIC, installer |
 | `lib/` | Flutter UI (BLoC), English + Persian |
 
@@ -38,6 +39,8 @@ Signed APKs are published on the [Releases](https://github.com/Neo-vortex/WingDr
 4. The receiver sends `DONE` only after every byte has been written.
 
 Trust levels: a QR pairing or a bond is let in directly. The radar key needs the receiver's approval ("Accept" or "Accept and remember them"). A bond is derived from the X25519 session and stored by both phones.
+
+Follow-up sessions: while media is still being shrunk, the ready files go first. Once the receiver accepts, both sides derive a follow-up key from the session (BLAKE2b "wdr-follow"); the shrunk files then come in a second session authenticated with it, with no second approval. Receivers keep these keys in memory for 30 minutes.
 
 Resume: on failure the receiver keeps the partial files and the chunk bitmap, keyed by transfer id, for 24 hours.
 

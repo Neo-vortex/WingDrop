@@ -91,6 +91,10 @@ class SessionStats {
   String get error => j['error'] as String;
   String get bond => j['bond'] as String;
 
+  /// Sender, once the receiver said yes: key for a follow-up session (files
+  /// that were still being shrunk) that needs no second approval.
+  String get follow => (j['follow'] as String?) ?? '';
+
   /// Sender: 0 reaching the receiver, 1 waiting for its answer, 2 moving data.
   int get phase => (j['phase'] as int?) ?? 0;
   double get progress => total == 0 ? 0 : done / total;

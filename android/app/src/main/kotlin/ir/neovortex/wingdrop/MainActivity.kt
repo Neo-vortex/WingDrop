@@ -225,6 +225,10 @@ class MainActivity : FlutterActivity() {
                 NativeEngine.nativeCancel((call.argument<Number>("id") ?: 0).toLong())
                 result.success(null)
             }
+            "holdGroup" -> {
+                NativeEngine.nativeHoldGroup(call.argument<Boolean>("on") == true)
+                result.success(null)
+            }
             "status" -> result.success(NativeEngine.nativeStatus())
             "stage" -> result.success(Diag.stage)
             "chat" -> result.success(NativeEngine.nativeChat((call.argument<Number>("session") ?: 0).toLong(), call.argument<String>("text") ?: ""))

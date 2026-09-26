@@ -24,7 +24,14 @@ class TransferView extends StatelessWidget {
     this.connectingText,
     this.onRetry,
     this.showOverview = true,
+    this.preparing = 0,
+    this.prepProgress = 0,
   });
+
+  /// Sender: files still being shrunk; they follow in a second session, so
+  /// the first one finishing isn't "all sent" yet.
+  final int preparing;
+  final double prepProgress;
 
   /// The per-file tile grid (the receiver shows its own, tappable one instead).
   final bool showOverview;
@@ -46,15 +53,31 @@ class TransferView extends StatelessWidget {
       child: BlocListener<TransferCubit, TransferState>(
         listenWhen: (a, b) => !a.finished && b.finished,
         listener: (context, state) => onFinished?.call(state.stats!),
-        child: _TransferBody(sending: sending, connectingText: connectingText, onRetry: onRetry, showOverview: showOverview),
+        child: _TransferBody(
+          sending: sending,
+          connectingText: connectingText,
+          onRetry: onRetry,
+          showOverview: showOverview,
+          preparing: preparing,
+          prepProgress: prepProgress,
+        ),
       ),
     );
   }
 }
 
 class _TransferBody extends StatelessWidget {
-  const _TransferBody({required this.sending, this.connectingText, this.onRetry, this.showOverview = true});
+  const _TransferBody({
+    required this.sending,
+    this.connectingText,
+    this.onRetry,
+    this.showOverview = true,
+    this.preparing = 0,
+    this.prepProgress = 0,
+  });
 
+  final int preparing;
+  final double prepProgress;
   final bool sending;
   final bool showOverview;
   final String? connectingText;
@@ -69,13 +92,17 @@ class _TransferBody extends StatelessWidget {
     final x = st.stats;
     if (x == null) return const SizedBox(height: 260);
 
-    final done = x.state == EngineState.done;
+    // Everything ready went over; the rest is still being shrunk.
+    final holding = x.state == EngineState.done && preparing > 0;
+    final done = x.state == EngineState.done && !holding;
     final failed = x.state == EngineState.failed || x.state == EngineState.cancelled;
     final connecting = x.state == EngineState.connecting || (x.state == EngineState.listening && x.totalBytes == 0);
     final sessions = x.sessions;
 
     final Widget center;
-    if (done) {
+    if (holding) {
+      center = Breathing(child: Icon(Icons.compress_rounded, size: 56, color: cs.primary));
+    } else if (done) {
       center = Icon(Icons.check_rounded, size: 72, color: cs.primary);
     } else if (failed) {
       center = Icon(Icons.pause_rounded, size: 64, color: cs.error);
@@ -90,7 +117,9 @@ class _TransferBody extends StatelessWidget {
     }
 
     final String headline;
-    if (done) {
+    if (holding) {
+      headline = s.shrinkingRest(preparing);
+    } else if (done) {
       headline = sending ? s.allSent : s.allReceived;
     } else if (failed) {
       headline = x.state == EngineState.cancelled ? s.stopped : s.paused;
@@ -101,7 +130,9 @@ class _TransferBody extends StatelessWidget {
     }
 
     final String sub;
-    if (done) {
+    if (holding) {
+      sub = s.shrinkingRestSub((prepProgress * 100).round());
+    } else if (done) {
       sub = s.doneIn(fmtBytes(s, x.totalBytes), fmtMs(s, x.elapsedMs), fmtRate(s, x.avgBytesPerSec));
     } else if (failed) {
       sub = x.state == EngineState.cancelled ? '' : (x.error == 'declined' ? s.declined : s.interrupted);
@@ -115,8 +146,8 @@ class _TransferBody extends StatelessWidget {
       children: [
         const SizedBox(height: 8),
         GlideRing(
-          value: done ? 1 : x.progress,
-          child: AnimatedSwitcher(duration: kSoft, child: KeyedSubtree(key: ValueKey(x.state), child: center)),
+          value: holding ? prepProgress : (done ? 1 : x.progress),
+          child: AnimatedSwitcher(duration: kSoft, child: KeyedSubtree(key: ValueKey((x.state, holding)), child: center)),
         ),
         const SizedBox(height: 28),
         SoftText(headline, style: t.titleLarge?.copyWith(fontWeight: FontWeight.w600), textAlign: TextAlign.center),

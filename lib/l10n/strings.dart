@@ -91,6 +91,15 @@ class S {
   String get shrinkSmall => _t('Much lighter', 'خیلی سبک‌تر');
   String get shrinkSmallSub => _t('Smallest size that still looks and sounds fine', 'کمترین حجمی که هنوز خوب دیده و شنیده می‌شه');
   String get shrinking => _t('Making things lighter…', 'دارم فایل‌ها رو سبک‌تر می‌کنم…');
+  String shrinkingRest(int n) => _t(
+        n == 1 ? 'Shrinking one more…' : 'Shrinking $n more…',
+        n == 1 ? 'دارم یکی دیگه رو سبک می‌کنم…' : 'دارم $n تای دیگه رو سبک می‌کنم…',
+      );
+  String shrinkingRestSub(int pct) => _t('$pct% · it goes the moment it\'s ready', '$pct٪ · همین که آماده شد می‌ره');
+  String prepLine(int n, int pct) => _t(
+        n == 1 ? 'Shrinking one file in the background · $pct%' : 'Shrinking $n files in the background · $pct%',
+        n == 1 ? 'یه فایل پشت صحنه داره سبک می‌شه · $pct٪' : '$n تا فایل پشت صحنه دارن سبک می‌شن · $pct٪',
+      );
   String get shrinkingSub => _t('Using the phone\'s video hardware, hang tight', 'با سخت‌افزار ویدیوی گوشی، یه کم صبر کن');
   String get shrinkSetting => _t('Make media lighter', 'سبک‌تر کردن رسانه‌ها');
   String get shrinkAsk => _t('Ask me', 'بپرس');

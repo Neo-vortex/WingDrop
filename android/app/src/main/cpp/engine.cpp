@@ -61,6 +61,8 @@ namespace {
 constexpr uint32_t kMaxChunk = 64u << 20;
 constexpr int kPipeSize = 1 << 20;
 constexpr size_t kMaxReceiveSessions = 8;
+constexpr size_t kMaxFollows = 16;
+constexpr int64_t kFollowMs = 30 * 60 * 1000;
 // Upper bound for pipeline buffers per session (all streams together).
 constexpr size_t kBufferBudget = 192u << 20;
 constexpr uint8_t kAckVersion = 0xFE;  // Hello answer: "different protocol version", then u16 version
@@ -387,6 +389,9 @@ public:
     uint8_t aegisKey[16]{};
     bool aegis = false;
     uint8_t bondKey[32]{};
+    // Lets the sender open a second session for files that were still being
+    // prepared (shrunk) without asking the receiver again.
+    uint8_t followKey[32]{};
     std::atomic<bool> bonded{false};
     Options opts;
     Peer peer;
@@ -445,6 +450,7 @@ public:
         crypto_wipe(dataKey, sizeof dataKey);
         crypto_wipe(aegisKey, sizeof aegisKey);
         crypto_wipe(bondKey, sizeof bondKey);
+        crypto_wipe(followKey, sizeof followKey);
     }
 
     bool active() const {
@@ -597,6 +603,7 @@ void deriveSessionKeys(Session& s, const uint8_t sessionKey[32]) {
     kdf(sessionKey, "wdr-data", s.sid, 16, s.dataKey, 32);
     kdf(s.dataKey, "wdr-aegis", nullptr, 0, s.aegisKey, 16);
     kdf(sessionKey, "wdr-bond", nullptr, 0, s.bondKey, 32);
+    kdf(sessionKey, "wdr-follow", nullptr, 0, s.followKey, 32);
 }
 
 }  // namespace
@@ -636,13 +643,17 @@ std::shared_ptr<Session> Engine::findSession(const uint8_t sid[16]) {
     return nullptr;
 }
 
-void Engine::addToGroup(const std::shared_ptr<Session>& s) {
+void Engine::addToGroup(const std::shared_ptr<Session>& s, bool keep) {
     std::lock_guard<std::mutex> l(mu_);
-    // A new batch after everything went quiet starts a fresh group for the UI.
+    // A new batch after everything went quiet starts a fresh group for the UI,
+    // unless it continues the previous one (a follow-up of files that were
+    // still being prepared, or the sender holding the group open for it).
     bool anyActive = std::any_of(group_.begin(), group_.end(), [](auto& x) { return x->active(); });
-    if (!anyActive) group_.clear();
+    if (!anyActive && !keep && !holdGroup_) group_.clear();
     group_.push_back(s);
 }
+
+void Engine::holdGroup(bool on) { holdGroup_ = on; }
 
 void Engine::cancel(uint64_t id) {
     std::vector<std::shared_ptr<Session>> targets;
@@ -706,7 +717,8 @@ std::string Engine::status() {
                     ",\"filesTotal\":" + std::to_string(s->files.size()) + ",\"filesDone\":" +
                     std::to_string(s->filesDone.load()) + ",\"elapsedMs\":" + std::to_string(el) +
                     ",\"phase\":" + std::to_string(s->phase.load()) + ",\"error\":\"" + jsonEscape(e) + "\",\"bond\":\"" +
-                    (s->sender && st == kDone && s->bonded ? hex(s->bondKey, 32) : "") + "\"}";
+                    (s->sender && st == kDone && s->bonded ? hex(s->bondKey, 32) : "") + "\",\"follow\":\"" +
+                    (s->sender && s->phase.load() >= 2 ? hex(s->followKey, 32) : "") + "\"}";
     }
     int64_t state;
     if (anyTransferring) state = kTransferring;
@@ -957,7 +969,7 @@ void Engine::handleControl(int fd, const Hello& hello) {
     // Which key opened the door decides how much we trust the sender:
     // QR key or a remembered bond = trusted, radar key = ask the person.
     uint8_t pairKey[32]{};
-    bool trusted = false, bondMatch = false, radar = false;
+    bool trusted = false, bondMatch = false, follow = false, radar = false;
     size_t activeReceives = 0;
     std::string myId;
     ReceiverSink sink;
@@ -978,14 +990,27 @@ void Engine::handleControl(int fd, const Hello& hello) {
                     break;
                 }
             }
-            if (!bondMatch && hasRadar_ && helloMatches(radarKey_, hello)) {
+            if (!bondMatch) {
+                const int64_t now = nowMs();
+                follows_.erase(std::remove_if(follows_.begin(), follows_.end(), [&](auto& f) { return f.until < now; }),
+                               follows_.end());
+                for (auto& f : follows_) {
+                    if (helloMatches(f.key.data(), hello)) {
+                        follow = true;
+                        memcpy(pairKey, f.key.data(), 32);
+                        break;
+                    }
+                }
+            }
+            if (!bondMatch && !follow && hasRadar_ && helloMatches(radarKey_, hello)) {
                 radar = true;
                 memcpy(pairKey, radarKey_, 32);
             }
         }
     }
-    uint8_t ack = ((trusted || bondMatch || radar) && activeReceives < kMaxReceiveSessions) ? 1 : 0;
-    LOGI("control hello: key=%s tunnel=%s active=%zu -> %s", trusted ? "qr" : bondMatch ? "bond" : radar ? "radar" : "unknown",
+    uint8_t ack = ((trusted || bondMatch || follow || radar) && activeReceives < kMaxReceiveSessions) ? 1 : 0;
+    LOGI("control hello: key=%s tunnel=%s active=%zu -> %s",
+         trusted ? "qr" : bondMatch ? "bond" : follow ? "follow-up" : radar ? "radar" : "unknown",
          hello.stream == 1 ? "encrypted" : "plain", activeReceives, ack ? "accept" : "reject");
     if (!writeAll(fd, &ack, 1) || !ack) {
         if (!ack) LOGW("rejected control connection (unknown key or too busy)");
@@ -1069,7 +1094,8 @@ void Engine::handleControl(int fd, const Hello& hello) {
     }
 
     Peer peer{o.buddy, o.nick, o.deviceId};
-    int decision = (trusted || bondMatch) ? 1 : (sink.approve ? sink.approve(peer, entries.size(), totalBytes) : 0);
+    // A follow-up continues a batch the person already accepted.
+    int decision = (trusted || bondMatch || follow) ? 1 : (sink.approve ? sink.approve(peer, entries.size(), totalBytes) : 0);
     if (decision == 0) {
         std::vector<uint8_t> no;
         put<uint32_t>(no, 2);
@@ -1087,6 +1113,16 @@ void Engine::handleControl(int fd, const Hello& hello) {
     s->previews = std::move(previews);
     memcpy(s->sid, hello.session, 16);
     deriveSessionKeys(*s, tunnel.sessionKey());
+    {
+        // Accepted: this sender may follow up with the files it's still
+        // preparing, for a while, without another prompt.
+        std::lock_guard<std::mutex> l(mu_);
+        if (follows_.size() >= kMaxFollows) follows_.erase(follows_.begin());
+        Follow f;
+        memcpy(f.key.data(), s->followKey, 32);
+        f.until = nowMs() + kFollowMs;
+        follows_.push_back(f);
+    }
     s->opts = o;
     s->peer = peer;
     s->initChunks();
@@ -1120,7 +1156,7 @@ void Engine::handleControl(int fd, const Hello& hello) {
         }
     }
 
-    addToGroup(s);
+    addToGroup(s, follow);
     s->startMs = nowMs();
     s->state = kTransferring;
     s->addSock(fd);

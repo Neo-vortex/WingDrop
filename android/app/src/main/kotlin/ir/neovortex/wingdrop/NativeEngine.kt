@@ -40,6 +40,9 @@ object NativeEngine {
 
     /** 0 cancels everything. */
     @JvmStatic external fun nativeCancel(id: Long)
+    @JvmStatic external fun nativeHoldGroup(on: Boolean)
+    @JvmStatic external fun nativeMux(job: Int, videoFd: Int, srcFd: Int, outFd: Int, preset: Int): Int
+    @JvmStatic external fun nativeVideoPlan(preset: Int): DoubleArray
 
     /** Aggregate + per-session progress as JSON (see Engine::status). */
     @JvmStatic external fun nativeStatus(): String

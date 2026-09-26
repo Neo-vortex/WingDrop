@@ -161,6 +161,10 @@ public:
 
     void cancel(uint64_t id = 0);  // 0 = everything
 
+    // Sender: keep the current sessions together in one UI group even if
+    // they all finish, because a follow-up batch is on its way.
+    void holdGroup(bool on);
+
     // Aggregate + per-session progress as JSON, for the UI.
     std::string status();
     // Per-file overview (name, size, category, done, has preview) of the
@@ -183,7 +187,7 @@ private:
     void handleData(int fd, const Hello& hello);
     void sendStream(const std::shared_ptr<Session>& s, const std::vector<Chunk>& chunks, std::atomic<size_t>& next,
                     const std::string& host, int port, int64_t netHandle, uint32_t index);
-    void addToGroup(const std::shared_ptr<Session>& s);
+    void addToGroup(const std::shared_ptr<Session>& s, bool keep = false);
     std::shared_ptr<Session> findSession(const uint8_t sid[16]);
 
     std::mutex mu_;
@@ -195,6 +199,13 @@ private:
     uint8_t key_[32]{};
     uint8_t radarKey_[32]{};
     bool hasRadar_ = false;
+    // Receiver: follow-up keys of accepted sessions, valid for a while.
+    struct Follow {
+        std::array<uint8_t, 32> key{};
+        int64_t until = 0;
+    };
+    std::vector<Follow> follows_;
+    std::atomic<bool> holdGroup_{false};
     ReceiverSink sink_;
     // Sessions since the engine was last idle; the UI shows them together.
     std::vector<std::shared_ptr<Session>> group_;

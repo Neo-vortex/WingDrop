@@ -22,6 +22,9 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 class MediaShrinker(private val context: Context) {
     private val progress = mutableMapOf<Int, Double>()
+    // Jobs on the GPU path: their own progress, and a cancel flag each.
+    private val gpu = java.util.concurrent.ConcurrentHashMap<Int, Double>()
+    private val gpuCancel = java.util.concurrent.ConcurrentHashMap<Int, java.util.concurrent.atomic.AtomicBoolean>()
     private val jobIds = AtomicInteger(1)
     @Volatile private var active = emptyList<Int>()
     @Volatile private var total = 0
@@ -48,7 +51,7 @@ class MediaShrinker(private val context: Context) {
                             mime.startsWith("image/") -> photo(item, File(dir, "$i.img"), name, preset)
                             mime.startsWith("video/") -> {
                                 videoSlots.acquire()
-                                try { av(ids[i], item, File(dir, "$i.mp4"), name, 0, preset, ".mp4") } finally { videoSlots.release() }
+                                try { video(ids[i], item, File(dir, "$i.mp4"), name, preset) } finally { videoSlots.release() }
                             }
                             mime.startsWith("audio/") -> av(ids[i], item, File(dir, "$i.m4a"), name, 1, preset, ".m4a")
                             else -> null
@@ -71,12 +74,59 @@ class MediaShrinker(private val context: Context) {
         var sum = 0.0
         for (id in ids) {
             val done = synchronized(progress) { progress[id] }
-            sum += done ?: NativeEngine.nativeTranscodeProgress(id)
+            val g = gpu[id]
+            sum += done ?: g ?: NativeEngine.nativeTranscodeProgress(id)
         }
         return sum / total
     }
 
-    fun cancel() = active.forEach { NativeEngine.nativeTranscodeCancel(it) }
+    fun cancel() = active.forEach {
+        gpuCancel[it]?.set(true)
+        NativeEngine.nativeTranscodeCancel(it)
+    }
+
+    /**
+     * Videos: the GPU path first (frames never leave the GPU, several times
+     * faster), then the audio is added natively. Anything it can't do well
+     * (HDR, Dolby Vision, odd codecs) or any failure falls back to FFmpeg.
+     */
+    private fun video(id: Int, item: Map<String, Any?>, out: File, name: String, preset: Int): Map<String, Any>? {
+        val cancelled = java.util.concurrent.atomic.AtomicBoolean(false)
+        gpuCancel[id] = cancelled
+        val tmp = File(out.parentFile, out.name + ".v")
+        try {
+            val t0 = System.nanoTime()
+            gpu[id] = 0.0
+            openIn(item).use { input -> GpuShrinker(cancelled) { gpu[id] = it * 0.9 }.videoOnly(input.fileDescriptor, tmp, preset) }
+            val t1 = System.nanoTime()
+            val r = ParcelFileDescriptor.open(tmp, ParcelFileDescriptor.MODE_READ_ONLY).use { v ->
+                openIn(item).use { src ->
+                    ParcelFileDescriptor.open(
+                        out, ParcelFileDescriptor.MODE_READ_WRITE or ParcelFileDescriptor.MODE_CREATE or ParcelFileDescriptor.MODE_TRUNCATE,
+                    ).use { o -> NativeEngine.nativeMux(id, v.fd, src.fd, o.fd, preset) }
+                }
+            }
+            Diag.i(TAG, "gpu shrink $name: video ${(t1 - t0) / 1_000_000} ms, audio+mux ${(System.nanoTime() - t1) / 1_000_000} ms -> $r")
+            if (r == 1) {
+                out.delete()
+                return null // not worth it: send the original
+            }
+            if (r == 0) return mapOf("path" to out.absolutePath, "name" to name.substringBeforeLast('.') + ".mp4", "size" to out.length())
+            throw IllegalStateException("mux failed ($r)")
+        } catch (e: InterruptedException) {
+            out.delete()
+            return null
+        } catch (e: Exception) {
+            if (cancelled.get()) return null
+            Diag.w(TAG, "gpu shrink fell back to FFmpeg for $name: ${e.message}")
+            gpu.remove(id)
+            return av(id, item, out, name, 0, preset, ".mp4")
+        } finally {
+            tmp.delete()
+            gpu.remove(id)
+            gpuCancel.remove(id)
+        }
+    }
 
     private fun openIn(item: Map<String, Any?>): ParcelFileDescriptor {
         val path = item["path"] as String?
