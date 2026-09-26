@@ -196,7 +196,11 @@ class _SendView extends StatelessWidget {
           children: [
             Breathing(
               child: Icon(
-                st.stage == 'system_prompt' ? Icons.touch_app_rounded : Icons.wifi_tethering_rounded,
+                switch (st.stage) {
+                  'system_prompt' => Icons.touch_app_rounded,
+                  'shrinking' => Icons.compress_rounded,
+                  _ => Icons.wifi_tethering_rounded,
+                },
                 size: 72,
                 color: cs.primary,
               ),
@@ -204,8 +208,22 @@ class _SendView extends StatelessWidget {
             const SizedBox(height: 24),
             SoftText(_stageText(s, st), style: t.titleMedium, textAlign: TextAlign.center),
             const SizedBox(height: 8),
-            _Elapsed(since: st.stageSince),
-            if (st.stage != 'shrinking') ...[const SizedBox(height: 16), _PrepLine(state: st)],
+            if (st.stage == 'shrinking') ...[
+              // Everything picked needs shrinking: nothing can go before it's
+              // done, so show how far along it is rather than a clock.
+              const SizedBox(height: 8),
+              SizedBox(width: 220, child: GlideBar(value: st.convertProgress)),
+              const SizedBox(height: 10),
+              SoftText(
+                s.shrinkingRestSub((st.convertProgress * 100).round()),
+                style: t.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                textAlign: TextAlign.center,
+              ),
+            ] else ...[
+              _Elapsed(since: st.stageSince),
+              const SizedBox(height: 16),
+              _PrepLine(state: st),
+            ],
             const SizedBox(height: 28),
             TextButton(onPressed: () => context.read<SendCubit>().cancelConnect(), child: Text(s.cancel)),
           ],
