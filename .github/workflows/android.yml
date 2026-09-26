@@ -61,7 +61,7 @@ jobs:
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "No signing secrets: building debug-signed, nothing will be published."
+            echo "No signing secrets: building and publishing debug-signed."
             echo "signed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -114,11 +114,14 @@ jobs:
           if-no-files-found: error
 
       - name: Publish release
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && steps.signing.outputs.signed == 'true'
+        # Published even without signing secrets (debug-signed then); the
+        # release says which key signed it, since the two can't update each other.
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.name }}
-          name: WingDrop ${{ steps.version.outputs.name }}
+          name: WingDrop ${{ steps.version.outputs.name }}${{ steps.signing.outputs.signed != 'true' && ' (debug-signed)' || '' }}
+          body: ${{ steps.signing.outputs.signed == 'true' && 'Signed with the WingDrop release key.' || 'Signed with a debug key (no release signing secrets set). It cannot update, or be updated by, release-signed installs.' }}
           target_commitish: ${{ github.sha }}
           generate_release_notes: true
           files: dist/*
